@@ -1076,6 +1076,10 @@ async function runProgram() {
   if (hitWall) { showToast('Menabrak dinding! Coba lagi.'); }
   else if (!(maze.playerX === maze.goalX && maze.playerY === maze.goalY)) { showToast('Belum sampai tujuan. Tambah perintah!'); }
 
+  // Kembali otomatis ke posisi awal setelah gagal
+  await sleep(900);
+  resetMaze();
+
   isRunning = false;
   document.getElementById('run-btn').disabled = false;
 }
