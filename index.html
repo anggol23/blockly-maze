@@ -539,22 +539,9 @@ input:focus { outline: none; border-color: var(--primary); }
      <div id="ref-warning" class="hidden rounded-lg p-3 mb-4 text-sm font-medium" style="background:rgba(255,107,107,0.15);color:#ff6b6b;border:1px solid rgba(255,107,107,0.3)"></div>
      <div class="flex flex-col gap-5">
       <div>
-       <label class="block text-sm font-medium mb-2">1. Apa langkah yang kamu lakukan?</label> <textarea id="ref-q1" placeholder="Jelaskan langkah-langkah yang kamu ambil (min. 50 karakter)"></textarea>
-       <div class="char-count" id="ref-q1-count">
-        0/50
-       </div>
-      </div>
-      <div>
-       <label class="block text-sm font-medium mb-2">2. Kendala apa yang kamu temui?</label> <textarea id="ref-q2" placeholder="Ceritakan kendala atau kesulitan yang kamu hadapi (min. 50 karakter)"></textarea>
-       <div class="char-count" id="ref-q2-count">
-        0/50
-       </div>
-      </div>
-      <div>
-       <label class="block text-sm font-medium mb-2">3. Bagaimana cara mengatasinya?</label> <textarea id="ref-q3" placeholder="Jelaskan strategi yang kamu gunakan (min. 50 karakter)"></textarea>
-       <div class="char-count" id="ref-q3-count">
-        0/50
-       </div>
+       <label class="block text-sm font-medium mb-2">Tuliskan langkah-langkah yang kamu buat secara berurutan dari awal sampai mencapai tujuan!</label>
+       <textarea id="ref-q1" placeholder="Contoh: Pertama saya maju 2 langkah, lalu belok kiri... (min. 20 karakter)" style="min-height:100px"></textarea>
+       <div class="char-count" id="ref-q1-count">0/20</div>
       </div>
      </div><button class="btn-primary w-full mt-6" onclick="submitReflection()"> <span class="flex items-center justify-center gap-2">Simpan &amp; Lanjut <i data-lucide="check" style="width:16px;height:16px"></i></span> </button>
     </div>
@@ -1101,55 +1088,36 @@ function showReflection() {
   document.getElementById('modal-reflection').classList.remove('hidden');
   document.getElementById('ref-level-num').textContent = state.currentLevel;
   document.getElementById('ref-warning').classList.add('hidden');
-  ['ref-q1','ref-q2','ref-q3'].forEach(id => {
-    document.getElementById(id).value = '';
-    document.getElementById(id).classList.remove('error-field');
-  });
+  const q1el = document.getElementById('ref-q1');
+  q1el.value = '';
+  q1el.classList.remove('error-field');
   updateCharCounts();
   lucide.createIcons();
 }
 
 function updateCharCounts() {
-  ['ref-q1','ref-q2','ref-q3'].forEach(id => {
-    const ta = document.getElementById(id);
-    const countEl = document.getElementById(id + '-count');
-    const len = ta.value.length;
-    countEl.textContent = `${len}/50`;
-    countEl.classList.toggle('warning', len < 50 && len > 0);
-  });
+  const ta = document.getElementById('ref-q1');
+  const countEl = document.getElementById('ref-q1-count');
+  const len = ta.value.length;
+  countEl.textContent = `${len}/20`;
+  countEl.classList.toggle('warning', len < 20 && len > 0);
 }
-['ref-q1','ref-q2','ref-q3'].forEach(id => {
-  document.getElementById(id).addEventListener('input', updateCharCounts);
-});
+document.getElementById('ref-q1').addEventListener('input', updateCharCounts);
 
 async function submitReflection() {
   const q1 = document.getElementById('ref-q1').value.trim();
-  const q2 = document.getElementById('ref-q2').value.trim();
-  const q3 = document.getElementById('ref-q3').value.trim();
   const warningEl = document.getElementById('ref-warning');
 
-  let valid = true;
-  [['ref-q1',q1],['ref-q2',q2],['ref-q3',q3]].forEach(([id,val]) => {
-    const el = document.getElementById(id);
-    if (val.length < 50) { el.classList.add('error-field'); valid = false; }
-    else { el.classList.remove('error-field'); }
-  });
-
-  if (!valid) {
-    warningEl.textContent = 'Setiap jawaban harus minimal 50 karakter.';
+  if (q1.length < 20) {
+    document.getElementById('ref-q1').classList.add('error-field');
+    warningEl.textContent = 'Jawaban harus minimal 20 karakter.';
     warningEl.classList.remove('hidden');
     return;
   }
-
-  if (maze.levelAttempts > 5 && q2.toLowerCase().includes('tidak ada kendala')) {
-    warningEl.textContent = '⚠️ Jawaban tidak sesuai dengan aktivitas. Kamu sudah mencoba ' + maze.levelAttempts + ' kali.';
-    warningEl.classList.remove('hidden');
-    return;
-  }
-
+  document.getElementById('ref-q1').classList.remove('error-field');
   warningEl.classList.add('hidden');
 
-  state.reflections[state.currentLevel] = { q1, q2, q3, attempts: maze.levelAttempts, steps: maze.steps };
+  state.reflections[state.currentLevel] = { q1, attempts: maze.levelAttempts, steps: maze.steps };
 
   if (state.currentLevel < 10 && state.currentLevel >= state.maxUnlocked) {
     state.maxUnlocked = state.currentLevel + 1;
@@ -1166,7 +1134,7 @@ async function submitReflection() {
         level: state.currentLevel,
         attempts: maze.levelAttempts,
         steps: maze.steps,
-        reflections: JSON.stringify({q1,q2,q3}),
+        reflections: JSON.stringify({q1}),
         completed_levels: JSON.stringify(state.reflections),
         timestamp: new Date().toISOString()
       });
