@@ -1,0 +1,1415 @@
+<!doctype html>
+<html lang="id" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MazeMind - Pembelajaran Informatika</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.263.0/dist/umd/lucide.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&amp;family=Outfit:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet">
+  <style>
+html, body { height: 100%; margin: 0; font-family: 'Outfit', sans-serif; }
+* { box-sizing: border-box; }
+
+:root {
+  --bg: #0a0e1a;
+  --surface: #141929;
+  --text: #e8eaf6;
+  --primary: #6c5ce7;
+  --secondary: #00cec9;
+}
+
+.app-wrapper {
+  width: 100%; height: 100%; overflow-y: auto; overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.glow-border {
+  border: 1px solid rgba(108,92,231,0.3);
+  box-shadow: 0 0 20px rgba(108,92,231,0.1), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.maze-cell {
+  transition: all 0.2s ease;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* Tanah / dinding berumput */
+.wall-cell {
+  background: linear-gradient(160deg, #2d6a0a 0%, #1a4506 50%, #234a08 100%);
+  box-shadow: inset 0 0 6px rgba(0,0,0,0.5);
+}
+.wall-cell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(0,0,0,0.08) 4px,
+    rgba(0,0,0,0.08) 5px
+  );
+}
+
+/* Lintasan tanah */
+.path-cell {
+  background: linear-gradient(135deg, #c8a060 0%, #b8904a 50%, #c09050 100%);
+  border: 1px solid rgba(100,70,20,0.25);
+}
+
+/* Sel pemain — tanpa warna background sendiri, pakai image */
+.player-cell {
+  background: linear-gradient(135deg, #b8900a 0%, #a07808 100%) !important;
+  border: 2px solid rgba(255,200,50,0.6) !important;
+  box-shadow: 0 0 12px rgba(255,180,0,0.5);
+}
+.player-cell img {
+  width: 90%;
+  height: 90%;
+  object-fit: contain;
+  transition: transform 0.2s ease;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.4));
+}
+
+/* Kotak tujuan — papan finish */
+.goal-cell {
+  background:
+    repeating-conic-gradient(
+      #fff 0% 25%, #111 0% 50%
+    ) 0 0 / 12px 12px !important;
+  box-shadow: 0 0 14px rgba(255,255,0,0.6);
+  border: 2px solid gold !important;
+  animation: goal-pulse 1.4s ease-in-out infinite;
+}
+.goal-cell::after {
+  content: '🏁';
+  position: absolute;
+  font-size: 70%;
+  line-height: 1;
+  bottom: 1px;
+  right: 1px;
+}
+
+.visited-cell { background: rgba(180,130,50,0.55) !important; }
+
+@keyframes goal-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(255,255,0,0.4); }
+  50%        { box-shadow: 0 0 20px rgba(255,255,0,0.9); }
+}
+@keyframes pulse-goal {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in { animation: fadeIn 0.4s ease forwards; }
+.animate-slide { animation: slideUp 0.5s ease forwards; }
+
+.block-item {
+  cursor: grab; user-select: none;
+  padding: 10px 16px; border-radius: 8px;
+  font-family: 'Space Mono', monospace; font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.block-item:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.block-item:active { cursor: grabbing; transform: scale(0.97); }
+
+.block-forward { background: #6c5ce7; color: #fff; }
+.block-left { background: #fdcb6e; color: #2d3436; }
+.block-right { background: #e17055; color: #fff; }
+.block-repeat { background: #00cec9; color: #2d3436; }
+
+.workspace-block {
+  padding: 8px 14px; border-radius: 6px;
+  font-family: 'Space Mono', monospace; font-size: 12px; font-weight: 700;
+  display: flex; align-items: center; gap: 6px;
+  position: relative;
+}
+.workspace-block .remove-btn {
+  position: absolute; right: -8px; top: -8px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #ff6b6b; color: #fff; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; opacity: 0; transition: opacity 0.15s;
+}
+.workspace-block:hover .remove-btn { opacity: 1; }
+
+.repeat-container {
+  border: 2px solid rgba(0,206,201,0.5); border-radius: 8px;
+  padding: 8px; margin: 4px 0; min-height: 40px;
+  background: rgba(0,206,201,0.05);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+  color: #fff; border: none; padding: 12px 28px; border-radius: 10px;
+  font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 15px;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(108,92,231,0.4); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-secondary {
+  background: rgba(0,206,201,0.15); border: 1px solid rgba(0,206,201,0.3);
+  color: var(--secondary); padding: 10px 22px; border-radius: 10px;
+  font-family: 'Outfit', sans-serif; font-weight: 600; font-size: 14px;
+  cursor: pointer; transition: all 0.2s;
+}
+.btn-secondary:hover { background: rgba(0,206,201,0.25); }
+
+.level-node {
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 16px; cursor: pointer;
+  transition: all 0.25s; position: relative;
+}
+.level-locked { background: #1e2640; color: #4a5568; cursor: not-allowed; }
+.level-available { background: var(--primary); color: #fff; box-shadow: 0 0 16px rgba(108,92,231,0.5); }
+.level-completed { background: var(--secondary); color: #0a0e1a; }
+
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: #ff6b6b; color: #fff; padding: 14px 24px; border-radius: 10px;
+  font-weight: 600; z-index: 1000; animation: fadeIn 0.3s ease;
+  max-width: 90%;
+}
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-content {
+  background: var(--surface); border-radius: 16px; padding: 32px;
+  max-width: 540px; width: 100%; max-height: 90%; overflow-y: auto;
+  animation: slideUp 0.4s ease;
+}
+.modal-content::-webkit-scrollbar { width: 4px; }
+.modal-content::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 4px; }
+
+textarea {
+  width: 100%; background: #0d1220; border: 1px solid rgba(108,92,231,0.2);
+  color: var(--text); border-radius: 8px; padding: 12px; font-family: 'Outfit', sans-serif;
+  font-size: 14px; resize: vertical; min-height: 70px;
+  transition: border-color 0.2s;
+}
+textarea:focus { outline: none; border-color: var(--primary); }
+textarea.error-field { border-color: #ff6b6b; }
+
+.char-count { font-size: 11px; color: #4a5568; text-align: right; margin-top: 2px; }
+.char-count.warning { color: #ff6b6b; }
+
+.progress-track {
+  height: 8px; background: #1e2640; border-radius: 8px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--primary), var(--secondary));
+  border-radius: 8px; transition: width 0.6s ease;
+}
+
+.stat-card {
+  background: var(--surface); border-radius: 12px; padding: 20px;
+  text-align: center;
+}
+.stat-value { font-size: 32px; font-weight: 800; }
+.stat-label { font-size: 13px; color: #8892b0; margin-top: 4px; }
+
+input[type="text"], input[type="number"] {
+  background: #0d1220; border: 1px solid rgba(108,92,231,0.2);
+  color: var(--text); border-radius: 8px; padding: 12px 16px;
+  font-family: 'Outfit', sans-serif; font-size: 15px; width: 100%;
+  transition: border-color 0.2s;
+}
+input:focus { outline: none; border-color: var(--primary); }
+
+.grid-pattern {
+  background-image: radial-gradient(rgba(108,92,231,0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* ===== BLOCKLY-STYLE BLOCKS ===== */
+.blk {
+  position: relative;
+  border-radius: 4px;
+  padding: 10px 36px 10px 14px;
+  font-family: 'Space Mono', monospace;
+  font-size: 13px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px;
+  user-select: none;
+  box-shadow: 3px 3px 0 rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.15);
+}
+/* Notch receiver at top */
+.blk::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 18px;
+  width: 22px; height: 8px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 0 0 5px 5px;
+}
+/* Connector tab at bottom */
+.blk::after {
+  content: '';
+  position: absolute;
+  bottom: -10px; left: 18px;
+  width: 22px; height: 10px;
+  background: inherit;
+  filter: brightness(0.7);
+  border-radius: 0 0 5px 5px;
+  z-index: 1;
+}
+.blk-forward { background: #5c4dd1; color: #fff; }
+.blk-left    { background: #d4a017; color: #1a1a1a; }
+.blk-right   { background: #c0522d; color: #fff; }
+.blk-repeat  { background: #00a89e; color: #0d2426; }
+
+/* Palette (panel kiri) */
+.blk-palette {
+  cursor: grab;
+  width: 100%;
+  margin-bottom: 18px;
+  transition: transform 0.15s, filter 0.15s;
+}
+.blk-palette:hover { filter: brightness(1.15); transform: translateX(3px); }
+.blk-palette:active { cursor: grabbing; transform: scale(0.97); }
+
+/* Program workspace blocks */
+.blk-ws {
+  cursor: default;
+  font-size: 12px;
+  padding: 8px 36px 8px 12px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+.blk-ws .blk-rm {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  width: 18px; height: 18px; border-radius: 50%;
+  background: rgba(0,0,0,0.25); color: #fff; border: none; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; opacity: 0; transition: opacity 0.15s;
+}
+.blk-ws:hover .blk-rm { opacity: 1; }
+
+/* Repeat inner drop zone */
+.blk-repeat-inner {
+  margin-top: 10px;
+  margin-left: 14px;
+  padding: 6px 8px 2px 10px;
+  background: rgba(0,0,0,0.2);
+  border-left: 3px solid rgba(255,255,255,0.25);
+  border-radius: 0 0 4px 4px;
+  min-height: 30px;
+  transition: border-color 0.15s;
+}
+
+/* ===== RESPONSIVE ===== */
+@media (max-width: 767px) {
+  /* Palette: tampil horizontal 2 kolom di mobile */
+  #block-palette {
+    flex-direction: row !important;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .blk-palette {
+    width: calc(50% - 3px) !important;
+    margin-bottom: 0 !important;
+    font-size: 11px;
+    padding: 7px 22px 7px 8px;
+    flex: 0 0 calc(50% - 3px);
+  }
+  /* Sembunyikan notch bawah di palette horizontal */
+  .blk-palette::after { display: none; }
+
+  /* Panel label lebih kecil */
+  .panel-label { font-size: 9px !important; letter-spacing: 0.5px !important; }
+
+  /* Game header label kecil */
+  .game-stats span { font-size: 11px !important; }
+
+  /* Modal padding lebih kecil */
+  .modal-content { padding: 20px 14px; }
+
+  /* Workspace height di mobile */
+  #workspace { max-height: 160px !important; }
+
+  /* Tombol run/reset lebih compact */
+  #run-btn, #run-btn + button { font-size: 12px !important; padding: 8px 6px !important; }
+
+  /* Stat card nilai lebih kecil */
+  .stat-value { font-size: 22px; }
+
+  /* Firebase status di mobile: bawah kiri */
+  #firebase-status {
+    top: auto !important;
+    bottom: 12px !important;
+    right: 12px !important;
+    font-size: 10px !important;
+    padding: 4px 8px !important;
+  }
+}
+</style>
+ </head>
+ <body class="h-full">
+  <div class="app-wrapper grid-pattern" id="app">
+   <!-- ROLE SELECT PAGE -->
+   <div id="page-role" class="h-full flex items-center justify-center p-4">
+    <div class="glow-border rounded-2xl p-8 max-w-md w-full animate-slide" style="background:var(--surface)">
+     <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style="background:linear-gradient(135deg,#6c5ce7,#00cec9)">
+       <i data-lucide="brain" style="width:32px;height:32px;color:#fff"></i>
+      </div>
+      <h1 class="text-3xl font-extrabold" style="font-family:'Space Mono',monospace;background:linear-gradient(135deg,#6c5ce7,#00cec9);-webkit-background-clip:text;-webkit-text-fill-color:transparent">MazeMind</h1>
+      <p class="text-sm mt-2" style="color:#8892b0">Pilih peran Anda</p>
+     </div>
+     <div class="flex flex-col gap-3"><button class="btn-primary w-full" onclick="selectRole('student')"> <span class="flex items-center justify-center gap-2"><i data-lucide="user" style="width:18px;height:18px"></i> Saya Siswa</span> </button> <button class="btn-secondary w-full" onclick="selectRole('teacher')"> <span class="flex items-center justify-center gap-2"><i data-lucide="users" style="width:18px;height:18px"></i> Saya Guru</span> </button>
+     </div>
+    </div>
+   </div><!-- LOGIN PAGE -->
+   <div id="page-login" class="h-full flex items-center justify-center p-4 hidden">
+    <div class="glow-border rounded-2xl p-8 max-w-md w-full animate-slide" style="background:var(--surface)">
+     <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style="background:linear-gradient(135deg,#6c5ce7,#00cec9)">
+       <i data-lucide="brain" style="width:32px;height:32px;color:#fff"></i>
+      </div>
+      <h1 id="title-el" class="text-3xl font-extrabold" style="font-family:'Space Mono',monospace;background:linear-gradient(135deg,#6c5ce7,#00cec9);-webkit-background-clip:text;-webkit-text-fill-color:transparent">MazeMind</h1>
+      <p id="welcome-el" class="text-sm mt-2" style="color:#8892b0">Asah Computational Thinking lewat Game Labirin</p>
+     </div>
+     <form id="login-form" onsubmit="return false">
+      <div class="flex flex-col gap-4">
+       <div>
+        <label for="username-input" class="block text-sm font-medium mb-2" style="color:#8892b0">Nama Siswa</label>
+        <input type="text" id="username-input" placeholder="Masukkan namamu..." required>
+       </div>
+       <div class="flex gap-3">
+        <div class="flex-1">
+         <label for="kelas-input" class="block text-sm font-medium mb-2" style="color:#8892b0">Kelas</label>
+         <input type="text" id="kelas-input" placeholder="Contoh: 7A" required>
+        </div>
+        <div style="width:120px">
+         <label for="absen-input" class="block text-sm font-medium mb-2" style="color:#8892b0">No. Absen</label>
+         <input type="number" id="absen-input" placeholder="1" min="1" max="99" required>
+        </div>
+       </div>
+      </div>
+      <div id="login-error" class="text-sm mt-2 hidden" style="color:#ff6b6b">Semua field harus diisi</div>
+      <button type="submit" class="btn-primary w-full mt-6" id="login-btn"> <span class="flex items-center justify-center gap-2">Masuk <i data-lucide="arrow-right" style="width:18px;height:18px"></i></span> </button>
+      <button type="button" class="btn-secondary w-full mt-2" onclick="selectRole(null)"> <span class="flex items-center justify-center gap-1"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Kembali</span> </button>
+     </form>
+    </div>
+   </div><!-- DASHBOARD PAGE -->
+   <div id="page-dashboard" class="h-full p-4 md:p-8 hidden">
+    <div class="max-w-3xl mx-auto animate-in">
+     <div class="flex items-center justify-between mb-8">
+      <div>
+       <p class="text-sm" style="color:#8892b0">Selamat datang,</p>
+       <h2 id="dash-name" class="text-2xl font-bold" style="font-family:'Space Mono',monospace"></h2>
+      </div><div class="flex gap-2"><button class="btn-secondary text-sm" onclick="showResults()"> <span class="flex items-center gap-2"><i data-lucide="bar-chart-2" style="width:16px;height:16px"></i> Hasil</span> </button><button class="btn-secondary text-sm" onclick="logoutUser()"> <span class="flex items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i> Keluar</span> </button></div>
+     </div>
+     <div class="glow-border rounded-xl p-6 mb-8" style="background:var(--surface)">
+      <div class="flex items-center justify-between mb-3">
+       <span class="text-sm font-medium" style="color:#8892b0">Progress</span> <span id="dash-progress-text" class="text-sm font-bold" style="color:var(--secondary)">0/10</span>
+      </div>
+      <div class="progress-track">
+       <div id="dash-progress-bar" class="progress-fill" style="width:0%"></div>
+      </div>
+     </div>
+     <h3 class="text-lg font-semibold mb-4">Pilih Level</h3>
+     <div id="level-grid" class="flex flex-wrap gap-3 mb-8"></div><button class="btn-primary w-full" id="start-btn" onclick="startGame()"> <span class="flex items-center justify-center gap-2"><i data-lucide="play" style="width:20px;height:20px"></i> Mulai Bermain</span> </button>
+    </div>
+   </div><!-- GAME PAGE -->
+   <div id="page-game" class="h-full hidden">
+    <div class="flex flex-col h-full">
+     <!-- Game Header -->
+     <div class="flex items-center justify-between p-3 md:p-4" style="background:var(--surface);border-bottom:1px solid rgba(108,92,231,0.15)">
+      <button class="btn-secondary text-xs py-2 px-3" onclick="backToDashboard()"> <span class="flex items-center gap-1"><i data-lucide="arrow-left" style="width:14px;height:14px"></i> Kembali</span> </button>
+      <div class="game-stats flex items-center gap-2 md:gap-4 text-xs md:text-sm">
+       <span style="color:#8892b0">Lv <strong id="game-level" style="color:var(--primary)">1</strong></span> <span style="color:#8892b0">Langkah <strong id="game-steps" style="color:var(--secondary)">0</strong></span> <span style="color:#8892b0">Coba <strong id="game-attempts" style="color:#fdcb6e">0</strong></span>
+      </div>
+     </div><!-- Game Content: 3 kolom -->
+     <div class="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden">
+
+      <!-- Panel 1: Blok Perintah -->
+      <div class="md:w-52 p-3 md:p-4 overflow-x-auto md:overflow-y-auto flex-shrink-0" style="background:rgba(20,25,41,0.9);border-bottom:1px solid rgba(108,92,231,0.1);">
+       <p class="panel-label text-xs font-semibold mb-2 md:mb-3" style="color:#8892b0;letter-spacing:1px">BLOK PERINTAH</p>
+       <div class="flex flex-col gap-0" id="block-palette">
+        <div class="blk blk-forward blk-palette" draggable="true" data-type="forward">
+         <i data-lucide="arrow-up" style="width:15px;height:15px"></i> Maju
+        </div>
+        <div class="blk blk-left blk-palette" draggable="true" data-type="left">
+         <i data-lucide="corner-up-left" style="width:15px;height:15px"></i> Belok Kiri
+        </div>
+        <div class="blk blk-right blk-palette" draggable="true" data-type="right">
+         <i data-lucide="corner-up-right" style="width:15px;height:15px"></i> Belok Kanan
+        </div>
+        <div class="blk blk-repeat blk-palette" draggable="true" data-type="repeat">
+         <i data-lucide="repeat" style="width:15px;height:15px"></i> Ulangi (x2)
+        </div>
+       </div>
+       <p class="hidden md:block text-xs mt-5 mb-2" style="color:#4a5568">Klik atau seret blok ke panel Program</p>
+      </div>
+
+      <!-- Panel 2: Program -->
+      <div class="md:w-64 p-3 md:p-4 md:overflow-y-auto flex-shrink-0 flex flex-col" style="background:rgba(13,18,32,0.95);border-bottom:1px solid rgba(108,92,231,0.1);border-right:1px solid rgba(108,92,231,0.1)">
+       <p class="panel-label text-xs font-semibold mb-2 md:mb-3" style="color:#8892b0;letter-spacing:1px">PROGRAM</p>
+      <div id="workspace" class="min-h-[80px] md:min-h-[120px] rounded-lg p-3" style="background:#080d18;border:2px dashed rgba(108,92,231,0.2);transition:border-color 0.2s;overflow-y:auto;max-height:calc(100vh - 220px)">
+        <p id="workspace-hint" class="text-xs text-center py-4" style="color:#4a5568">Seret blok ke sini</p>
+        <div id="blocks-container"></div>
+       </div>
+       <div class="flex gap-2 mt-3 md:mt-4">
+        <button class="btn-primary flex-1 text-xs md:text-sm py-2 md:py-3" id="run-btn" onclick="runProgram()"> <span class="flex items-center justify-center gap-1"><i data-lucide="play" style="width:14px;height:14px"></i> Jalankan</span> </button>
+        <button class="btn-secondary flex-1 text-xs md:text-sm py-2 md:py-3" onclick="resetMaze()"> <span class="flex items-center justify-center gap-1"><i data-lucide="rotate-ccw" style="width:14px;height:14px"></i> Reset</span> </button>
+       </div>
+      </div>
+
+      <!-- Panel 3: Hasil Visual (Labirin) -->
+      <div class="flex-1 flex flex-col items-center justify-center p-3 md:p-4 overflow-auto min-h-[280px]">
+       <p class="panel-label text-xs font-semibold mb-3 md:mb-4" style="color:#8892b0;letter-spacing:1px">HASIL VISUAL</p>
+       <div id="maze-container"></div>
+      </div>
+
+     </div>
+    </div>
+   </div><!-- RESULTS PAGE -->
+   <div id="page-results" class="h-full p-4 md:p-8 hidden">
+    <div class="max-w-2xl mx-auto animate-in">
+     <button class="btn-secondary text-xs py-2 px-3 mb-6" onclick="showDashboard()"> <span class="flex items-center gap-1"><i data-lucide="arrow-left" style="width:14px;height:14px"></i> Kembali</span> </button>
+     <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style="background:linear-gradient(135deg,#00cec9,#6c5ce7)">
+       <i data-lucide="trophy" style="width:32px;height:32px;color:#fff"></i>
+      </div>
+      <h2 class="text-2xl font-bold" style="font-family:'Space Mono',monospace">Hasil Pembelajaran</h2>
+     </div>
+     <div class="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8">
+      <div class="stat-card glow-border">
+       <div id="res-level" class="stat-value" style="color:var(--primary)">
+        0
+       </div>
+       <div class="stat-label">
+        Level Tertinggi
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="res-attempts" class="stat-value" style="color:#fdcb6e">
+        0
+       </div>
+       <div class="stat-label">
+        Total Percobaan
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="res-score" class="stat-value" style="color:var(--secondary)">
+        0
+       </div>
+       <div class="stat-label">
+        Estimasi Nilai
+       </div>
+      </div>
+     </div>
+     <div class="glow-border rounded-xl p-6" style="background:var(--surface)">
+      <h3 class="font-semibold mb-4">Riwayat Refleksi</h3>
+      <div id="reflection-history" class="flex flex-col gap-3"></div>
+     </div>
+    </div>
+   </div><!-- REFLECTION MODAL -->
+   <div id="modal-reflection" class="modal-overlay hidden">
+    <div class="modal-content">
+     <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:linear-gradient(135deg,#6c5ce7,#00cec9)">
+       <i data-lucide="message-circle" style="width:20px;height:20px;color:#fff"></i>
+      </div>
+      <div>
+       <h3 class="font-bold text-lg">Refleksi Level <span id="ref-level-num"></span></h3>
+       <p class="text-xs" style="color:#8892b0">Jawab pertanyaan berikut sebelum lanjut</p>
+      </div>
+     </div>
+     <div id="ref-warning" class="hidden rounded-lg p-3 mb-4 text-sm font-medium" style="background:rgba(255,107,107,0.15);color:#ff6b6b;border:1px solid rgba(255,107,107,0.3)"></div>
+     <div class="flex flex-col gap-5">
+      <div>
+       <label class="block text-sm font-medium mb-2">1. Apa langkah yang kamu lakukan?</label> <textarea id="ref-q1" placeholder="Jelaskan langkah-langkah yang kamu ambil (min. 50 karakter)"></textarea>
+       <div class="char-count" id="ref-q1-count">
+        0/50
+       </div>
+      </div>
+      <div>
+       <label class="block text-sm font-medium mb-2">2. Kendala apa yang kamu temui?</label> <textarea id="ref-q2" placeholder="Ceritakan kendala atau kesulitan yang kamu hadapi (min. 50 karakter)"></textarea>
+       <div class="char-count" id="ref-q2-count">
+        0/50
+       </div>
+      </div>
+      <div>
+       <label class="block text-sm font-medium mb-2">3. Bagaimana cara mengatasinya?</label> <textarea id="ref-q3" placeholder="Jelaskan strategi yang kamu gunakan (min. 50 karakter)"></textarea>
+       <div class="char-count" id="ref-q3-count">
+        0/50
+       </div>
+      </div>
+     </div><button class="btn-primary w-full mt-6" onclick="submitReflection()"> <span class="flex items-center justify-center gap-2">Simpan &amp; Lanjut <i data-lucide="check" style="width:16px;height:16px"></i></span> </button>
+    </div>
+   </div><!-- TEACHER DASHBOARD -->
+   <div id="page-teacher" class="h-full p-4 md:p-8 hidden">
+    <div class="max-w-6xl mx-auto animate-in">
+     <div class="flex items-center justify-between mb-8">
+      <div>
+       <p class="text-sm" style="color:#8892b0">Guru</p>
+       <h2 id="teacher-name" class="text-2xl font-bold" style="font-family:'Space Mono',monospace"></h2>
+      </div><button class="btn-secondary text-sm" onclick="logoutUser()"> <span class="flex items-center gap-2"><i data-lucide="log-out" style="width:16px;height:16px"></i> Keluar</span> </button>
+     </div>
+     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div class="stat-card glow-border">
+       <div id="stat-students" class="stat-value" style="color:var(--primary)">
+        0
+       </div>
+       <div class="stat-label">
+        Total Siswa
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="stat-avg-level" class="stat-value" style="color:var(--secondary)">
+        0
+       </div>
+       <div class="stat-label">
+        Rata-rata Level
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="stat-avg-score" class="stat-value" style="color:#fdcb6e">
+        0
+       </div>
+       <div class="stat-label">
+        Rata-rata Nilai
+       </div>
+      </div>
+     </div>
+     <div class="glow-border rounded-xl p-6" style="background:var(--surface)">
+      <div class="flex items-center justify-between mb-4">
+       <h3 class="font-semibold text-lg">Daftar Siswa</h3><input type="text" id="search-students" placeholder="Cari siswa..." class="text-xs w-40" style="padding:6px 12px;border-radius:6px">
+      </div>
+      <div class="overflow-x-auto">
+       <table class="w-full text-sm">
+        <thead>
+         <tr style="border-bottom:1px solid rgba(108,92,231,0.1);color:#8892b0">
+          <th class="text-left py-3 px-2">Nama</th>
+          <th class="text-center py-3 px-2">Kelas</th>
+          <th class="text-center py-3 px-2">Absen</th>
+          <th class="text-center py-3 px-2">Level</th>
+          <th class="text-center py-3 px-2">Percobaan</th>
+          <th class="text-center py-3 px-2">Nilai</th>
+          <th class="text-center py-3 px-2">Refleksi</th>
+          <th class="text-center py-3 px-2">Aksi</th>
+         </tr>
+        </thead>
+        <tbody id="students-table"></tbody>
+       </table>
+      </div>
+     </div>
+    </div>
+   </div><!-- STUDENT DETAIL (Teacher View) -->
+   <div id="page-student-detail" class="h-full p-4 md:p-8 hidden">
+    <div class="max-w-4xl mx-auto animate-in"><button class="btn-secondary text-xs py-2 px-3 mb-6" onclick="backToTeacherDash()"> <span class="flex items-center gap-1"><i data-lucide="arrow-left" style="width:14px;height:14px"></i> Kembali</span> </button>
+     <div class="mb-8">
+      <h2 id="detail-student-name" class="text-2xl font-bold" style="font-family:'Space Mono',monospace"></h2>
+      <p class="text-sm mt-1" style="color:#8892b0" id="detail-meta"></p>
+     </div>
+     <div class="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8">
+      <div class="stat-card glow-border">
+       <div id="detail-level" class="stat-value" style="color:var(--primary)">
+        0
+       </div>
+       <div class="stat-label">
+        Level Tertinggi
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="detail-attempts" class="stat-value" style="color:#fdcb6e">
+        0
+       </div>
+       <div class="stat-label">
+        Total Percobaan
+       </div>
+      </div>
+      <div class="stat-card glow-border">
+       <div id="detail-score" class="stat-value" style="color:var(--secondary)">
+        0
+       </div>
+       <div class="stat-label">
+        Nilai
+       </div>
+      </div>
+     </div>
+     <div class="glow-border rounded-xl p-6" style="background:var(--surface)">
+      <h3 class="font-semibold mb-4">Refleksi Pembelajaran</h3>
+      <div id="detail-reflections" class="flex flex-col gap-4"></div>
+     </div>
+    </div>
+   </div><!-- SUCCESS MODAL -->
+   <div id="modal-success" class="modal-overlay hidden">
+    <div class="modal-content text-center">
+     <div class="text-6xl mb-4">
+      🎉
+     </div>
+     <h3 class="text-2xl font-bold mb-2" style="font-family:'Space Mono',monospace">Level Selesai!</h3>
+     <p class="text-sm mb-6" style="color:#8892b0">Kamu berhasil menyelesaikan labirin</p><button class="btn-primary" onclick="showReflection()">Isi Refleksi</button>
+    </div>
+   </div><!-- TOAST -->
+   <div id="toast" class="toast hidden"></div>
+   <!-- Firestore status indicator -->
+   <div id="firebase-status" style="position:fixed;top:12px;right:12px;z-index:999;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600;background:rgba(20,25,41,0.9);border:1px solid rgba(108,92,231,0.3);backdrop-filter:blur(8px);transition:all 0.3s">
+    <span id="firebase-dot" style="width:8px;height:8px;border-radius:50%;background:#4a5568;display:inline-block;transition:background 0.3s"></span>
+    <span id="firebase-label" style="color:#8892b0">Menghubungkan...</span>
+   </div>
+  </div>
+  <script>
+// ============ FIREBASE ============
+let allStudentsData = [];
+let db = null;
+
+function setFirebaseStatus(status, detail) {
+  const dot = document.getElementById('firebase-dot');
+  const label = document.getElementById('firebase-label');
+  if (!dot || !label) return;
+  const map = {
+    online: { color: '#00cec9', text: 'Terhubung' },
+    error:  { color: '#ff6b6b', text: 'Gagal' },
+    saving: { color: '#fdcb6e', text: 'Menyimpan...' },
+  };
+  const s = map[status] || map.error;
+  dot.style.background = s.color;
+  label.textContent = detail ? `${s.text}: ${detail}` : s.text;
+  label.style.color = s.color;
+}
+
+function initFirebase() {
+  // File dibuka langsung (file://) — Firestore tidak bisa konek karena CORS
+  if (window.location.protocol === 'file:') {
+    setFirebaseStatus('error', 'Buka via server, bukan file://');
+    console.error('Firestore tidak bisa digunakan saat file dibuka langsung. Gunakan Live Server / server lokal.');
+    return;
+  }
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyB-CEtaF-_GrAauyLi0_21TNTH-bDFJw48",
+    authDomain: "blockly-5e7ad.firebaseapp.com",
+    projectId: "blockly-5e7ad",
+    storageBucket: "blockly-5e7ad.firebasestorage.app",
+    messagingSenderId: "610429857698",
+    appId: "1:610429857698:web:39d7eadd62855d74f5ccfb",
+    measurementId: "G-W6754PG3SD"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  db = firebase.firestore();
+
+  // Timeout jika tidak ada respons dalam 10 detik
+  const connTimeout = setTimeout(() => {
+    setFirebaseStatus('error', 'Timeout — cek Rules Firestore');
+  }, 10000);
+
+  // Real-time listener: guru dashboard otomatis update saat ada data baru
+  db.collection('mazemind')
+    .where('role', '==', 'student')
+    .onSnapshot(snapshot => {
+      clearTimeout(connTimeout);
+      allStudentsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      if (state.role === 'teacher') updateTeacherDashboard();
+      setFirebaseStatus('online');
+    }, err => {
+      clearTimeout(connTimeout);
+      console.warn('Firestore listener error:', err);
+      setFirebaseStatus('error', err.code || err.message);
+    });
+}
+
+// ============ STATE ============
+let state = {
+  username: '',
+  kelas: '',
+  noAbsen: '',
+  role: '', // 'student' or 'teacher'
+  currentLevel: 1,
+  maxUnlocked: 1,
+  attempts: {},
+  reflections: {},
+  totalAttempts: 0
+};
+
+// Maze game state
+let maze = { grid: [], playerX: 0, playerY: 0, goalX: 0, goalY: 0, dir: 0, steps: 0, levelAttempts: 0 };
+let program = [];  // array blok yang disusun siswa
+let isRunning = false;
+
+// Directions: 0=up, 1=right, 2=down, 3=left
+const DX = [0, 1, 0, -1];
+const DY = [-1, 0, 1, 0];
+
+// ============ MAZE LEVELS ============
+const LEVELS = [
+  { grid: [[0,0,0,0,0],[0,2,1,3,0],[0,0,0,0,0]], dir: 1, hint: 'Maju 2 kali' },
+  { grid: [[0,0,0,0,0],[0,2,1,0,0],[0,0,1,0,0],[0,0,3,0,0],[0,0,0,0,0]], dir: 1, hint: 'Maju lalu belok' },
+  { grid: [[0,0,0,0,0,0],[0,2,1,1,0,0],[0,0,0,1,0,0],[0,0,0,1,3,0],[0,0,0,0,0,0]], dir: 1, hint: 'Gunakan belok kanan' },
+  { grid: [[0,0,0,0,0,0],[0,2,1,0,0,0],[0,0,1,0,0,0],[0,0,1,1,0,0],[0,0,0,1,0,0],[0,0,0,3,0,0],[0,0,0,0,0,0]], dir: 1, hint: 'Kombinasi belok' },
+  { grid: [[0,0,0,0,0,0,0],[0,2,1,1,0,0,0],[0,0,0,1,0,0,0],[0,0,0,1,1,1,0],[0,0,0,0,0,1,0],[0,0,0,0,0,3,0],[0,0,0,0,0,0,0]], dir: 1, hint: 'Gunakan repeat' },
+  { grid: [[0,0,0,0,0,0,0],[0,2,1,1,1,0,0],[0,0,0,0,1,0,0],[0,0,3,0,1,0,0],[0,0,1,0,1,0,0],[0,0,1,1,1,0,0],[0,0,0,0,0,0,0]], dir: 1, hint: 'Ikuti jalur spiral' },
+  { grid: [[0,0,0,0,0,0,0,0],[0,2,1,0,0,0,0,0],[0,0,1,0,0,0,0,0],[0,0,1,1,1,0,0,0],[0,0,0,0,1,0,0,0],[0,0,0,0,1,1,3,0],[0,0,0,0,0,0,0,0]], dir: 1, hint: 'Lebih banyak belokan' },
+  { grid: [[0,0,0,0,0,0,0,0],[0,2,1,1,0,0,0,0],[0,0,0,1,0,0,0,0],[0,0,0,1,0,0,0,0],[0,0,0,1,1,1,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,1,3,0],[0,0,0,0,0,0,0,0]], dir: 1, hint: 'Panjang dan berliku' },
+  { grid: [[0,0,0,0,0,0,0,0],[0,2,1,0,0,0,0,0],[0,0,1,1,0,0,0,0],[0,0,0,1,0,0,0,0],[0,0,0,1,1,0,0,0],[0,0,0,0,1,1,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,3,0,0],[0,0,0,0,0,0,0,0]], dir: 2, hint: 'Staircase pattern' },
+  { grid: [[0,0,0,0,0,0,0,0,0],[0,2,1,1,1,0,0,0,0],[0,0,0,0,1,0,0,0,0],[0,0,1,1,1,0,0,0,0],[0,0,1,0,0,0,0,0,0],[0,0,1,1,1,1,1,0,0],[0,0,0,0,0,0,1,0,0],[0,0,0,0,0,0,3,0,0],[0,0,0,0,0,0,0,0,0]], dir: 1, hint: 'Tantangan terakhir!' },
+];
+
+// ============ PERSISTENCE ============
+function saveState() {
+  localStorage.setItem('mazemind_state', JSON.stringify(state));
+}
+function loadState() {
+  const s = localStorage.getItem('mazemind_state');
+  if (s) { try { Object.assign(state, JSON.parse(s)); } catch(e){} }
+}
+
+// ============ PAGES ============
+function showPage(id) {
+  ['page-role','page-login','page-dashboard','page-game','page-results','page-teacher','page-student-detail'].forEach(p => {
+    document.getElementById(p).classList.toggle('hidden', p !== id);
+  });
+}
+
+// ============ ROLE SELECT ============
+function selectRole(role) {
+  if (role === null) {
+    showPage('page-role');
+    return;
+  }
+  state.role = role;
+  if (role === 'student') {
+    showPage('page-login');
+    // Isi ulang field jika pernah login sebelumnya
+    if (state.username) document.getElementById('username-input').value = state.username;
+    if (state.kelas) document.getElementById('kelas-input').value = state.kelas;
+    if (state.noAbsen) document.getElementById('absen-input').value = state.noAbsen;
+    setTimeout(() => lucide.createIcons(), 100);
+  } else {
+    const name = prompt('Nama Guru:');
+    if (!name) return;
+    state.username = name;
+    state.role = 'teacher';
+    saveState();
+    showTeacherDashboard();
+  }
+}
+
+// ============ LOGIN ============
+document.getElementById('login-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const name = document.getElementById('username-input').value.trim();
+  const kelas = document.getElementById('kelas-input').value.trim();
+  const noAbsen = document.getElementById('absen-input').value.trim();
+  if (!name || !kelas || !noAbsen) {
+    document.getElementById('login-error').classList.remove('hidden');
+    return;
+  }
+  document.getElementById('login-error').classList.add('hidden');
+  state.username = name;
+  state.kelas = kelas;
+  state.noAbsen = noAbsen;
+  state.role = 'student';
+  saveState();
+  showDashboard();
+});
+
+// ============ DASHBOARD ============
+function showDashboard() {
+  showPage('page-dashboard');
+  const kelasInfo = state.kelas ? ` · Kelas ${state.kelas} · No. ${state.noAbsen}` : '';
+  document.getElementById('dash-name').textContent = state.username + kelasInfo;
+  const completed = state.maxUnlocked - 1;
+  document.getElementById('dash-progress-text').textContent = `${completed}/10`;
+  document.getElementById('dash-progress-bar').style.width = `${completed * 10}%`;
+  renderLevelGrid();
+}
+
+function renderLevelGrid() {
+  const grid = document.getElementById('level-grid');
+  grid.innerHTML = '';
+  for (let i = 1; i <= 10; i++) {
+    const node = document.createElement('div');
+    node.className = 'level-node';
+    if (i < state.maxUnlocked) {
+      node.classList.add('level-completed');
+      node.innerHTML = '<i data-lucide="check" style="width:20px;height:20px"></i>';
+      node.onclick = () => { state.currentLevel = i; startGame(); };
+    } else if (i === state.maxUnlocked) {
+      node.classList.add('level-available');
+      node.textContent = i;
+      node.onclick = () => { state.currentLevel = i; startGame(); };
+    } else {
+      node.classList.add('level-locked');
+      node.innerHTML = '<i data-lucide="lock" style="width:16px;height:16px"></i>';
+    }
+    grid.appendChild(node);
+  }
+  lucide.createIcons();
+}
+
+// ============ GAME ============
+function startGame() {
+  showPage('page-game');
+  const lvl = LEVELS[state.currentLevel - 1];
+  maze.grid = lvl.grid.map(r => [...r]);
+  maze.dir = lvl.dir;
+  maze.steps = 0;
+  maze.levelAttempts = state.attempts[state.currentLevel] || 0;
+  program = [];
+
+  for (let y = 0; y < maze.grid.length; y++) {
+    for (let x = 0; x < maze.grid[y].length; x++) {
+      if (maze.grid[y][x] === 2) { maze.playerX = x; maze.playerY = y; maze.startX = x; maze.startY = y; }
+      if (maze.grid[y][x] === 3) { maze.goalX = x; maze.goalY = y; }
+    }
+  }
+
+  updateGameUI();
+  renderMaze();
+  renderWorkspace();
+}
+
+function updateGameUI() {
+  document.getElementById('game-level').textContent = state.currentLevel;
+  document.getElementById('game-steps').textContent = maze.steps;
+  document.getElementById('game-attempts').textContent = maze.levelAttempts;
+}
+
+function renderMaze() {
+  const container = document.getElementById('maze-container');
+  const rows = maze.grid.length;
+  const cols = maze.grid[0].length;
+  // Hitung ukuran sel dinamis berdasarkan lebar kontainer
+  const availW = container.offsetWidth || (window.innerWidth < 768 ? window.innerWidth - 32 : 380);
+  const availH = container.offsetHeight || (window.innerWidth < 768 ? window.innerHeight * 0.35 : 380);
+  const byW = Math.floor((availW - 12) / cols);
+  const byH = Math.floor((availH - 60) / rows);
+  const cellSize = Math.min(48, byW, byH > 0 ? byH : 48);
+
+  // rotasi gambar: asumsikan gambar menghadap KANAN (dir=1)
+  // dir: 0=atas(-90), 1=kanan(0), 2=bawah(90), 3=kiri(180)
+  const rotMap = ['-90deg', '0deg', '90deg', '180deg'];
+  const playerRot = rotMap[maze.dir];
+
+  let html = `<div style="display:grid;grid-template-columns:repeat(${cols},${cellSize}px);gap:2px;background:#1a3a08;padding:4px;border-radius:8px;box-shadow:0 0 20px rgba(0,0,0,0.5);">`;
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const v = maze.grid[y][x];
+      let cls = 'maze-cell';
+      let inner = '';
+      if (v === 0) {
+        cls += ' wall-cell';
+      } else {
+        cls += ' path-cell';
+        if (x === maze.playerX && y === maze.playerY) {
+          cls += ' player-cell';
+          inner = `<img src="motocross.png" alt="" style="transform:rotate(${playerRot})"`+
+                  ` onerror="this.style.display='none';this.parentElement.style.background='var(--primary)'">` ;
+        } else if (x === maze.goalX && y === maze.goalY) {
+          cls += ' goal-cell';
+        }
+      }
+      html += `<div class="${cls}" style="width:${cellSize}px;height:${cellSize}px;border-radius:${v===0?'4':'2'}px">${inner}</div>`;
+    }
+  }
+  html += '</div>';
+
+  const arrows = ['↑','→','↓','←'];
+  html += `<div class="text-center mt-3 text-xs" style="color:#8892b0">Arah: <span style="color:#f0c040;font-size:18px">${arrows[maze.dir]}</span></div>`;
+
+  container.innerHTML = html;
+}
+
+function resetMaze() {
+  const lvl = LEVELS[state.currentLevel - 1];
+  maze.playerX = maze.startX;
+  maze.playerY = maze.startY;
+  maze.dir = lvl.dir;
+  maze.steps = 0;
+  maze.grid = lvl.grid.map(r => [...r]);
+  updateGameUI();
+  renderMaze();
+}
+
+// ============ BLOCK WORKSPACE ============
+const BLK_COLOR = { forward: 'blk-forward', left: 'blk-left', right: 'blk-right', repeat: 'blk-repeat' };
+const BLK_LABEL = {
+  forward: '<i data-lucide="arrow-up" style="width:13px;height:13px"></i>&nbsp;Maju',
+  left:    '<i data-lucide="corner-up-left" style="width:13px;height:13px"></i>&nbsp;Belok Kiri',
+  right:   '<i data-lucide="corner-up-right" style="width:13px;height:13px"></i>&nbsp;Belok Kanan',
+  repeat:  '<i data-lucide="repeat" style="width:13px;height:13px"></i>&nbsp;Ulangi (x2)'
+};
+
+function renderWorkspace() {
+  const container = document.getElementById('blocks-container');
+  const hint = document.getElementById('workspace-hint');
+
+  // Tampilkan/sembunyikan hint tanpa menghapusnya dari DOM
+  hint.style.display = program.length === 0 ? 'block' : 'none';
+
+  // Bersihkan hanya blok-container, bukan seluruh workspace
+  container.innerHTML = '';
+  if (program.length === 0) return;
+
+  program.forEach((block, i) => {
+    const el = document.createElement('div');
+    el.className = `blk blk-ws ${BLK_COLOR[block.type]}`;
+    el.innerHTML = `${BLK_LABEL[block.type]}<button class="blk-rm" onclick="removeBlock(${i})">\u2715</button>`;
+
+    if (block.type === 'repeat') {
+      const inner = document.createElement('div');
+      inner.className = 'blk-repeat-inner';
+      if (block.children && block.children.length > 0) {
+        block.children.forEach((child, ci) => {
+          const childEl = document.createElement('div');
+          childEl.className = `blk blk-ws ${BLK_COLOR[child.type]}`;
+          childEl.style.cssText = 'font-size:11px;padding:6px 32px 6px 10px;margin-bottom:8px';
+          childEl.innerHTML = `${BLK_LABEL[child.type]}<button class="blk-rm" onclick="removeChildBlock(${i},${ci})">\u2715</button>`;
+          inner.appendChild(childEl);
+        });
+      } else {
+        inner.innerHTML = '<p style="color:#8892b0;font-size:11px;text-align:center;padding:4px 0">+ seret blok ke sini</p>';
+      }
+      inner.addEventListener('dragover', e => { e.preventDefault(); inner.style.borderColor = 'rgba(255,255,255,0.7)'; });
+      inner.addEventListener('dragleave', () => { inner.style.borderColor = 'rgba(255,255,255,0.25)'; });
+      inner.addEventListener('drop', e => {
+        e.preventDefault(); e.stopPropagation();
+        inner.style.borderColor = 'rgba(255,255,255,0.25)';
+        const type = e.dataTransfer.getData('text/plain');
+        if (type && type !== 'repeat') {
+          if (!block.children) block.children = [];
+          if (block.children.length < 4) { block.children.push({ type }); renderWorkspace(); }
+        }
+      });
+      el.appendChild(inner);
+    }
+    container.appendChild(el);
+  });
+
+  lucide.createIcons();
+}
+
+function removeBlock(i) { program.splice(i, 1); renderWorkspace(); }
+function removeChildBlock(pi, ci) { program[pi].children.splice(ci, 1); renderWorkspace(); }
+
+// Drag and drop
+document.querySelectorAll('.blk-palette').forEach(el => {
+  el.addEventListener('dragstart', e => {
+    e.dataTransfer.setData('text/plain', el.dataset.type);
+  });
+});
+
+const wsEl = document.getElementById('workspace');
+wsEl.addEventListener('dragover', e => { e.preventDefault(); wsEl.style.borderColor = 'var(--primary)'; });
+wsEl.addEventListener('dragleave', () => { wsEl.style.borderColor = ''; });
+wsEl.addEventListener('drop', e => {
+  e.preventDefault(); wsEl.style.borderColor = '';
+  const type = e.dataTransfer.getData('text/plain');
+  if (type && program.length < 20) {
+    program.push({ type, children: type === 'repeat' ? [] : undefined });
+    renderWorkspace();
+  }
+});
+
+document.querySelectorAll('.blk-palette').forEach(el => {
+  el.addEventListener('click', () => {
+    const type = el.dataset.type;
+    if (program.length < 20) {
+      program.push({ type, children: type === 'repeat' ? [] : undefined });
+      renderWorkspace();
+    }
+  });
+});
+
+// ============ RUN PROGRAM ============
+async function runProgram() {
+  if (isRunning || program.length === 0) return;
+  isRunning = true;
+  document.getElementById('run-btn').disabled = true;
+
+  resetMaze();
+  maze.levelAttempts++;
+  state.attempts[state.currentLevel] = maze.levelAttempts;
+  state.totalAttempts++;
+  updateGameUI();
+
+  const commands = [];
+  program.forEach(block => {
+    if (block.type === 'repeat' && block.children) {
+      for (let r = 0; r < 2; r++) {
+        block.children.forEach(c => commands.push(c.type));
+      }
+    } else if (block.type !== 'repeat') {
+      commands.push(block.type);
+    }
+  });
+
+  let hitWall = false;
+  for (const cmd of commands) {
+    if (hitWall) break;
+    if (cmd === 'left') { maze.dir = (maze.dir + 3) % 4; }
+    else if (cmd === 'right') { maze.dir = (maze.dir + 1) % 4; }
+    else if (cmd === 'forward') {
+      const nx = maze.playerX + DX[maze.dir];
+      const ny = maze.playerY + DY[maze.dir];
+      if (ny >= 0 && ny < maze.grid.length && nx >= 0 && nx < maze.grid[0].length && maze.grid[ny][nx] !== 0) {
+        maze.playerX = nx;
+        maze.playerY = ny;
+        maze.steps++;
+      } else {
+        hitWall = true;
+      }
+    }
+    updateGameUI();
+    renderMaze();
+    await sleep(300);
+
+    if (maze.playerX === maze.goalX && maze.playerY === maze.goalY) {
+      isRunning = false;
+      document.getElementById('run-btn').disabled = false;
+      document.getElementById('modal-success').classList.remove('hidden');
+      lucide.createIcons();
+      return;
+    }
+  }
+
+  if (hitWall) { showToast('Menabrak dinding! Coba lagi.'); }
+  else if (!(maze.playerX === maze.goalX && maze.playerY === maze.goalY)) { showToast('Belum sampai tujuan. Tambah perintah!'); }
+
+  isRunning = false;
+  document.getElementById('run-btn').disabled = false;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ============ REFLECTION ============
+function showReflection() {
+  document.getElementById('modal-success').classList.add('hidden');
+  document.getElementById('modal-reflection').classList.remove('hidden');
+  document.getElementById('ref-level-num').textContent = state.currentLevel;
+  document.getElementById('ref-warning').classList.add('hidden');
+  ['ref-q1','ref-q2','ref-q3'].forEach(id => {
+    document.getElementById(id).value = '';
+    document.getElementById(id).classList.remove('error-field');
+  });
+  updateCharCounts();
+  lucide.createIcons();
+}
+
+function updateCharCounts() {
+  ['ref-q1','ref-q2','ref-q3'].forEach(id => {
+    const ta = document.getElementById(id);
+    const countEl = document.getElementById(id + '-count');
+    const len = ta.value.length;
+    countEl.textContent = `${len}/50`;
+    countEl.classList.toggle('warning', len < 50 && len > 0);
+  });
+}
+['ref-q1','ref-q2','ref-q3'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateCharCounts);
+});
+
+async function submitReflection() {
+  const q1 = document.getElementById('ref-q1').value.trim();
+  const q2 = document.getElementById('ref-q2').value.trim();
+  const q3 = document.getElementById('ref-q3').value.trim();
+  const warningEl = document.getElementById('ref-warning');
+
+  let valid = true;
+  [['ref-q1',q1],['ref-q2',q2],['ref-q3',q3]].forEach(([id,val]) => {
+    const el = document.getElementById(id);
+    if (val.length < 50) { el.classList.add('error-field'); valid = false; }
+    else { el.classList.remove('error-field'); }
+  });
+
+  if (!valid) {
+    warningEl.textContent = 'Setiap jawaban harus minimal 50 karakter.';
+    warningEl.classList.remove('hidden');
+    return;
+  }
+
+  if (maze.levelAttempts > 5 && q2.toLowerCase().includes('tidak ada kendala')) {
+    warningEl.textContent = '⚠️ Jawaban tidak sesuai dengan aktivitas. Kamu sudah mencoba ' + maze.levelAttempts + ' kali.';
+    warningEl.classList.remove('hidden');
+    return;
+  }
+
+  warningEl.classList.add('hidden');
+
+  state.reflections[state.currentLevel] = { q1, q2, q3, attempts: maze.levelAttempts, steps: maze.steps };
+
+  if (state.currentLevel < 10 && state.currentLevel >= state.maxUnlocked) {
+    state.maxUnlocked = state.currentLevel + 1;
+  }
+
+  // Simpan ke Firestore
+  try {
+    if (db) {
+      await db.collection('mazemind').add({
+        username: state.username,
+        kelas: state.kelas,
+        no_absen: state.noAbsen,
+        role: 'student',
+        level: state.currentLevel,
+        attempts: maze.levelAttempts,
+        steps: maze.steps,
+        reflections: JSON.stringify({q1,q2,q3}),
+        completed_levels: JSON.stringify(state.reflections),
+        timestamp: new Date().toISOString()
+      });
+      console.info('Firestore: data saved for level', state.currentLevel);
+    }
+  } catch(err) {
+    console.warn('Firestore save error:', err);
+    showToast('⚠️ Data tidak tersimpan ke server: ' + err.message);
+  }
+
+  saveState();
+  document.getElementById('modal-reflection').classList.add('hidden');
+
+  if (state.currentLevel < 10) {
+    state.currentLevel++;
+    saveState();
+    startGame();
+    showToast('🎉 Level berikutnya terbuka!');
+  } else {
+    showToast('🏆 Semua level selesai!');
+    showResults();
+  }
+}
+
+// ============ RESULTS ============
+function showResults() {
+  showPage('page-results');
+  const maxLevel = state.maxUnlocked - 1;
+  document.getElementById('res-level').textContent = maxLevel;
+  document.getElementById('res-attempts').textContent = state.totalAttempts;
+  const score = Math.min(100, Math.round(maxLevel * 10 * (1 - Math.min(state.totalAttempts, 100) / 200)));
+  document.getElementById('res-score').textContent = score;
+
+  const hist = document.getElementById('reflection-history');
+  hist.innerHTML = '';
+  for (let i = 1; i <= 10; i++) {
+    const ref = state.reflections[i];
+    if (!ref) continue;
+    const card = document.createElement('div');
+    card.className = 'rounded-lg p-4 text-sm';
+    card.style.cssText = 'background:#0d1220;border:1px solid rgba(108,92,231,0.1)';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-bold" style="color:var(--primary)">Level ${i}</span>
+        <span class="text-xs" style="color:#8892b0">${ref.attempts} percobaan · ${ref.steps} langkah</span>
+      </div>
+      <p style="color:#8892b0" class="mb-1"><strong style="color:var(--text)">Langkah:</strong> ${escHtml(ref.q1)}</p>
+      <p style="color:#8892b0" class="mb-1"><strong style="color:var(--text)">Kendala:</strong> ${escHtml(ref.q2)}</p>
+      <p style="color:#8892b0"><strong style="color:var(--text)">Solusi:</strong> ${escHtml(ref.q3)}</p>
+    `;
+    hist.appendChild(card);
+  }
+  if (hist.children.length === 0) {
+    hist.innerHTML = '<p class="text-sm text-center py-4" style="color:#4a5568">Belum ada refleksi</p>';
+  }
+  lucide.createIcons();
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function backToDashboard() { showDashboard(); }
+
+// ============ TEACHER DASHBOARD ============
+function showTeacherDashboard() {
+  showPage('page-teacher');
+  document.getElementById('teacher-name').textContent = state.username;
+  updateTeacherDashboard();
+}
+
+function updateTeacherDashboard() {
+  // Kelompokkan semua entri per siswa (bisa ada banyak entri per siswa, 1 per level)
+  const studentMap = {};
+  allStudentsData.filter(d => d.role === 'student').forEach(entry => {
+    if (!studentMap[entry.username]) studentMap[entry.username] = [];
+    studentMap[entry.username].push(entry);
+  });
+  const studentGroups = Object.values(studentMap);
+
+  document.getElementById('stat-students').textContent = studentGroups.length;
+
+  let totalLevel = 0, totalScore = 0;
+  studentGroups.forEach(entries => {
+    const maxLevel = Math.max(...entries.map(e => e.level || 0));
+    const totalAttempts = entries.reduce((sum, e) => sum + (e.attempts || 0), 0);
+    totalLevel += maxLevel;
+    totalScore += Math.min(100, Math.round(maxLevel * 10 * (1 - Math.min(totalAttempts, 100) / 200)));
+  });
+
+  document.getElementById('stat-avg-level').textContent = studentGroups.length > 0 ? (totalLevel / studentGroups.length).toFixed(1) : '0';
+  document.getElementById('stat-avg-score').textContent = studentGroups.length > 0 ? (totalScore / studentGroups.length).toFixed(0) : '0';
+
+  const tbody = document.getElementById('students-table');
+  tbody.innerHTML = '';
+  studentGroups.forEach(entries => {
+    const username = entries[0].username;
+    const kelas = entries[0].kelas || '-';
+    const noAbsen = entries[0].no_absen || '-';
+    const maxLevel = Math.max(...entries.map(e => e.level || 0));
+    const totalAttempts = entries.reduce((sum, e) => sum + (e.attempts || 0), 0);
+    const score = Math.min(100, Math.round(maxLevel * 10 * (1 - Math.min(totalAttempts, 100) / 200)));
+    const refCount = entries.filter(e => {
+      try { return !!JSON.parse(e.reflections).q1; } catch(x) { return false; }
+    }).length;
+    const row = document.createElement('tr');
+    row.style.borderBottom = '1px solid rgba(108,92,231,0.1)';
+    row.innerHTML = `
+      <td class="py-3 px-2 text-left">${escHtml(username)}</td>
+      <td class="py-3 px-2 text-center">${escHtml(kelas)}</td>
+      <td class="py-3 px-2 text-center">${escHtml(String(noAbsen))}</td>
+      <td class="py-3 px-2 text-center"><span style="color:var(--primary);font-weight:bold">${maxLevel}</span></td>
+      <td class="py-3 px-2 text-center"><span style="color:#fdcb6e">${totalAttempts}</span></td>
+      <td class="py-3 px-2 text-center"><span style="color:var(--secondary);font-weight:bold">${score}</span></td>
+      <td class="py-3 px-2 text-center">${refCount}</td>
+      <td class="py-3 px-2 text-center"><button class="btn-secondary text-xs py-1 px-2" onclick="viewStudentDetail(${JSON.stringify(username)})">Lihat</button></td>
+    `;
+    tbody.appendChild(row);
+  });
+
+  lucide.createIcons();
+}
+
+function viewStudentDetail(username) {
+  const entries = allStudentsData.filter(d => d.username === username && d.role === 'student');
+  if (!entries.length) return;
+
+  showPage('page-student-detail');
+  document.getElementById('detail-student-name').textContent = username;
+
+  const maxLevel = Math.max(...entries.map(e => e.level || 0));
+  const totalAttempts = entries.reduce((sum, e) => sum + (e.attempts || 0), 0);
+  const score = Math.min(100, Math.round(maxLevel * 10 * (1 - Math.min(totalAttempts, 100) / 200)));
+  const kelas = entries[0].kelas || '-';
+  const noAbsen = entries[0].no_absen || '-';
+
+  document.getElementById('detail-meta').textContent = `Kelas ${kelas} · No. Absen ${noAbsen} · Level ${maxLevel} · ${totalAttempts} percobaan`;
+  document.getElementById('detail-level').textContent = maxLevel;
+  document.getElementById('detail-attempts').textContent = totalAttempts;
+  document.getElementById('detail-score').textContent = score;
+
+  const refDiv = document.getElementById('detail-reflections');
+  refDiv.innerHTML = '';
+
+  // Tampilkan semua refleksi per level, diurutkan berdasarkan level
+  entries.sort((a, b) => (a.level || 0) - (b.level || 0));
+  entries.forEach(entry => {
+    let refData = {};
+    try { refData = entry.reflections ? JSON.parse(entry.reflections) : {}; } catch(e) {}
+    if (!refData.q1) return;
+    const card = document.createElement('div');
+    card.style.cssText = 'background:#0d1220;border:1px solid rgba(108,92,231,0.1);border-radius:8px;padding:16px;margin-bottom:8px';
+    card.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <span class="font-bold" style="color:var(--primary)">Level ${entry.level}</span>
+        <span class="text-xs" style="color:#8892b0">${entry.attempts || 0} percobaan · ${entry.steps || 0} langkah</span>
+      </div>
+      <p style="color:#8892b0" class="mb-2"><strong style="color:var(--text)">Langkah:</strong> ${escHtml(refData.q1 || '')}</p>
+      <p style="color:#8892b0" class="mb-2"><strong style="color:var(--text)">Kendala:</strong> ${escHtml(refData.q2 || '')}</p>
+      <p style="color:#8892b0"><strong style="color:var(--text)">Solusi:</strong> ${escHtml(refData.q3 || '')}</p>
+    `;
+    refDiv.appendChild(card);
+  });
+
+  if (refDiv.children.length === 0) {
+    refDiv.innerHTML = '<p class="text-sm text-center py-4" style="color:#4a5568">Belum ada refleksi</p>';
+  }
+
+  lucide.createIcons();
+}
+
+function backToTeacherDash() { showTeacherDashboard(); }
+
+// ============ LOGOUT ============
+function logoutUser() {
+  state = { username: '', kelas: '', noAbsen: '', role: '', currentLevel: 1, maxUnlocked: 1, attempts: {}, reflections: {}, totalAttempts: 0 };
+  saveState();
+  showPage('page-role');
+  lucide.createIcons();
+}
+
+// ============ TOAST ============
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  if (msg.includes('🎉') || msg.includes('🏆')) { t.style.background = 'linear-gradient(135deg,#6c5ce7,#00cec9)'; }
+  else { t.style.background = '#ff6b6b'; }
+  setTimeout(() => t.classList.add('hidden'), 3000);
+}
+
+// ============ ELEMENT SDK ============
+const defaultConfig = {
+  app_title: 'MazeMind',
+  welcome_text: 'Asah Computational Thinking lewat Game Labirin',
+  background_color: '#0a0e1a',
+  surface_color: '#141929',
+  text_color: '#e8eaf6',
+  primary_color: '#6c5ce7',
+  secondary_color: '#00cec9',
+  font_family: 'Outfit',
+  font_size: 16
+};
+
+function applyConfig(config) {
+  const c = { ...defaultConfig, ...config };
+  document.documentElement.style.setProperty('--bg', c.background_color);
+  document.documentElement.style.setProperty('--surface', c.surface_color);
+  document.documentElement.style.setProperty('--text', c.text_color);
+  document.documentElement.style.setProperty('--primary', c.primary_color);
+  document.documentElement.style.setProperty('--secondary', c.secondary_color);
+
+  const titleEl = document.querySelector('#page-role h1');
+  if (titleEl) { 
+    titleEl.textContent = c.app_title;
+    titleEl.style.backgroundImage = `linear-gradient(135deg,${c.primary_color},${c.secondary_color})`;
+  }
+
+  document.body.style.fontFamily = `${c.font_family}, Outfit, sans-serif`;
+}
+
+applyConfig(defaultConfig);
+
+// ============ INIT ============
+loadState();
+initFirebase();
+
+// Search filter untuk teacher dashboard — inisialisasi sekali saja
+document.getElementById('search-students').addEventListener('input', function() {
+  const q = this.value.toLowerCase();
+  document.querySelectorAll('#students-table tr').forEach(row => {
+    const name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
+    row.style.display = name.includes(q) ? '' : 'none';
+  });
+});
+
+if (state.username && state.role === 'student') { 
+  showDashboard(); 
+} else if (state.username && state.role === 'teacher') {
+  showTeacherDashboard();
+} else {
+  showPage('page-role');
+}
+
+lucide.createIcons();
+</script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9ecaa5e757ffb29b',t:'MTc3NjI1MjkzOS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
