@@ -879,12 +879,13 @@ function renderMaze() {
   const container = document.getElementById('maze-container');
   const rows = maze.grid.length;
   const cols = maze.grid[0].length;
-  // Hitung ukuran sel dinamis berdasarkan lebar kontainer
-  const availW = container.offsetWidth || (window.innerWidth < 768 ? window.innerWidth - 32 : 380);
-  const availH = container.offsetHeight || (window.innerWidth < 768 ? window.innerHeight * 0.35 : 380);
-  const byW = Math.floor((availW - 12) / cols);
-  const byH = Math.floor((availH - 60) / rows);
-  const cellSize = Math.min(48, byW, byH > 0 ? byH : 48);
+  // Hitung ukuran sel dari panel induk (bukan dari container maze itu sendiri)
+  const panel = container.parentElement;
+  const availW = (panel ? panel.clientWidth : 0) || (window.innerWidth < 768 ? window.innerWidth - 24 : 400);
+  const availH = (panel ? panel.clientHeight : 0) || (window.innerWidth < 768 ? window.innerHeight * 0.38 : 420);
+  const byW = Math.floor((availW - 24) / cols);
+  const byH = Math.floor((availH - 70) / rows);
+  const cellSize = Math.max(24, Math.min(48, byW, byH > 0 ? byH : 48));
 
   // rotasi gambar: asumsikan gambar menghadap KANAN (dir=1)
   // dir: 0=atas(-90), 1=kanan(0), 2=bawah(90), 3=kiri(180)
