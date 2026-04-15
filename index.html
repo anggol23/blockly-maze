@@ -471,7 +471,7 @@ input:focus { outline: none; border-color: var(--primary); }
        </div>
        <div class="flex gap-2 mt-3 md:mt-4">
         <button class="btn-primary flex-1 text-xs md:text-sm py-2 md:py-3" id="run-btn" onclick="runProgram()"> <span class="flex items-center justify-center gap-1"><i data-lucide="play" style="width:14px;height:14px"></i> Jalankan</span> </button>
-        <button class="btn-secondary flex-1 text-xs md:text-sm py-2 md:py-3" onclick="resetMaze()"> <span class="flex items-center justify-center gap-1"><i data-lucide="rotate-ccw" style="width:14px;height:14px"></i> Reset</span> </button>
+        <button class="btn-secondary flex-1 text-xs md:text-sm py-2 md:py-3" onclick="resetAll()"> <span class="flex items-center justify-center gap-1"><i data-lucide="rotate-ccw" style="width:14px;height:14px"></i> Reset</span> </button>
        </div>
       </div>
 
@@ -930,6 +930,12 @@ function resetMaze() {
   maze.grid = lvl.grid.map(r => [...r]);
   updateGameUI();
   renderMaze();
+}
+
+function resetAll() {
+  program = [];
+  renderWorkspace();
+  resetMaze();
 }
 
 // ============ BLOCK WORKSPACE ============
